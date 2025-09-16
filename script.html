@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Real-Time GPS Sender</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    input, button {
+      margin: 5px 0;
+      padding: 5px;
+    }
+    button {
+      cursor: pointer;
+    }
+    .status-log {
+      margin-top: 15px;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+      background: #f9f9f9;
+      font-size: 14px;
+    }
+    .status-log p {
+      margin: 0 0 5px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Real-Time GPS Sender</h2>
+
+  <label>Backend URL:</label><br>
+  <input type="text" id="backendUrl" placeholder="https://xxxx.ngrok-free.app"><br>
+
+  <label>Call ID:</label><br>
+  <input type="number" id="callId" placeholder="13"><br>
+
+  <label>User ID:</label><br>
+  <input type="text" id="userId" placeholder="UUID"><br>
+
+  <button id="startBtn">Start Sending Location</button>
+  <button id="stopBtn" disabled>Stop</button>
+
+  <div class="status-log" id="statusLog"></div>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusLog = document.getElementById('statusLog');
+
+    let watchId = null;
+    let sendInterval = null;
+    let lastPosition = null;
+
+    function logStatus(message) {
+      const p = document.createElement('p');
+      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      statusLog.appendChild(p);
+      statusLog.scrollTop = statusLog.scrollHeight;
+    }
+
+    startBtn.addEventListener('click', () => {
+      const backendUrl = document.getElementById('backendUrl').value.trim();
+      const CALL_ID = parseInt(document.getElementById('callId').value.trim());
+      const USER_ID = document.getElementById('userId').value.trim();
+
+      if (!backendUrl || !CALL_ID || !USER_ID) {
+        logStatus("Please fill all fields.");
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        logStatus("Geolocation is not supported by your browser.");
+        return;
+      }
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      logStatus("Requesting GPS permission...");
+
+      // Ask permission once and start watching
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          lastPosition = pos.coords;
+        },
+        (err) => {
+          logStatus("Error getting GPS: " + err.message);
+        },
+        { enableHighAccuracy: true }
+      );
+
+      logStatus("Permission granted. Sending location every 5 seconds...");
+
+      const API_URL = `${backendUrl}/api/realtimegps/update-point`;
+
+      // Send location every 5 seconds
+      sendInterval = setInterval(() => {
+        if (!lastPosition) return;
+
+        const data = {
+          CallId: CALL_ID,
+          UserId: USER_ID,
+          Latitude: lastPosition.latitude,
+          Longitude: lastPosition.longitude,
+          Timestamp: new Date().toISOString()
+        };
+
+        fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        })
+        .then(response => {
+          if (response.ok) {
+            logStatus(`Sent: ${data.Latitude.toFixed(5)}, ${data.Longitude.toFixed(5)}`);
+          } else {
+            logStatus(`Failed to send: ${response.status} ${response.statusText}`);
+          }
+        })
+        .catch(err => {
+          logStatus("Error sending location: " + err.message);
+        });
+
+      }, 5000);
+    });
+
+    stopBtn.addEventListener('click', () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (sendInterval !== null) clearInterval(sendInterval);
+
+      lastPosition = null;
+      watchId = null;
+      sendInterval = null;
+
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+
+      logStatus("Stopped sending GPS data.");
+    });
+  </script>
+</body>
+</html>
